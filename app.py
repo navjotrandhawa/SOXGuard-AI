@@ -11,6 +11,10 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_community.chat_message_histories import ChatMessageHistory
 from pydantic import BaseModel, Field
 import tempfile
+import io
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
 
 # Load environment variables
 load_dotenv()
@@ -37,7 +41,52 @@ class ComplianceSWOT(BaseModel):
     threats: list[str] = Field(description="Potential audit risks or compliance threats, or empty.")
 
 # ==========================================
-# 2. Streamlit UI & Session State Setup
+# 2. PDF Report Generator Helper
+# ==========================================
+def generate_pdf_report(result, audit_focus):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    styles = getSampleStyleSheet()
+    story = []
+    
+    # Title & Metadata
+    story.append(Paragraph("SOX Compliance Audit Report", styles['Title']))
+    story.append(Paragraph(f"<b>Audit Focus:</b> {audit_focus}", styles['Normal']))
+    story.append(Spacer(1, 12))
+    
+    # Status & Rating
+    story.append(Paragraph(f"<b>Alignment Status:</b> {result.alignment_status}", styles['Normal']))
+    story.append(Paragraph(f"<b>Compliance Rating:</b> {result.rating} / 10", styles['Normal']))
+    story.append(Spacer(1, 12))
+    
+    # Summary
+    story.append(Paragraph("<b>Executive Summary</b>", styles['Heading2']))
+    story.append(Paragraph(result.alignment_summary, styles['Normal']))
+    story.append(Spacer(1, 12))
+    
+    # SWOT Sections
+    swot_sections = [
+        ("Strengths", result.strengths),
+        ("Weaknesses", result.weaknesses),
+        ("Opportunities", result.opportunities),
+        ("Threats & Risks", result.threats)
+    ]
+    
+    for title, items in swot_sections:
+        story.append(Paragraph(f"<b>{title}</b>", styles['Heading2']))
+        if items:
+            for item in items:
+                story.append(Paragraph(f"• {item}", styles['Normal']))
+        else:
+            story.append(Paragraph("None identified.", styles['Normal']))
+        story.append(Spacer(1, 8))
+        
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+# ==========================================
+# 3. Streamlit UI & Session State Setup
 # ==========================================
 st.set_page_config(page_title="SOX Compliance Auditor", layout="wide")
 st.title("🛡️ AI-Powered SOX Compliance Auditor with Guardrails & Memory")
@@ -46,11 +95,20 @@ st.markdown("Upload compliance documents, select a custom audit focus, and chat 
 # Initialize session state for message history if it doesn't exist
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = ChatMessageHistory()
+if "audit_run" not in st.session_state:
+    st.session_state.audit_run = False
+if "last_result" not in st.session_state:
+    st.session_state.last_result = None
 
 with st.sidebar:
-    st.header("📁 Document Upload")
-    uploaded_brd = st.file_uploader("Upload Sample_Client_BRD.pdf", type=["pdf"])
-    uploaded_sec = st.file_uploader("Upload Sample_SEC10K_Extract.pdf", type=["pdf"])
+    st.header("📁 Document Management")
+    
+    # Disclaimer notice
+    st.info("💡 **Disclaimer:** Please refresh the browser page to start a new session and upload a new set of documents.")
+    
+    st.markdown("---")
+    uploaded_brd = st.file_uploader("Upload Client Business Requirements Document (BRD)", type=["pdf"])
+    uploaded_sec = st.file_uploader("Upload SEC 10-K / Financial Extract", type=["pdf"])
     
     st.header("🎛️ Dynamic Audit Choices")
     audit_focus = st.selectbox(
@@ -66,11 +124,11 @@ with st.sidebar:
     run_audit = st.button("Run Compliance Audit", type="primary")
 
 # ==========================================
-# 3. Core Processing & Evaluation Logic
+# 4. Core Processing & Evaluation Logic
 # ==========================================
 if run_audit:
     if not uploaded_brd or not uploaded_sec:
-        st.error("Please upload both the Client BRD and the SEC 10-K Extract PDFs to proceed.")
+        st.error("Please upload both PDF documents to proceed.")
     else:
         with st.spinner("Processing documents, running relevance checks, and performing audit analysis..."):
             
@@ -121,8 +179,8 @@ if run_audit:
                 ),
                 MessagesPlaceholder(variable_name="history"),
                 ("human", "### Standard SOX Baseline:\n{baseline}\n\n"
-                           "### Retrieved Content from Uploaded Client Documents:\n{context}\n\n"
-                           "Perform a rigorous compliance audit focusing on: {audit_focus}.")
+                          "### Retrieved Content from Uploaded Client Documents:\n{context}\n\n"
+                          "Perform a rigorous compliance audit focusing on: {audit_focus}.")
             ])
 
             llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
@@ -154,7 +212,7 @@ if run_audit:
                 st.error(f"An error occurred during chain execution: {e}")
 
 # ==========================================
-# 4. Display Results & Interactive Chat History
+# 5. Display Results & Interactive Chat History
 # ==========================================
 if st.session_state.get("audit_run", False):
     result = st.session_state.last_result
@@ -172,6 +230,15 @@ if st.session_state.get("audit_run", False):
             st.metric(label="Alignment Status", value=result.alignment_status)
         with col2:
             st.metric(label="Compliance Rating", value=f"{result.rating} / 10")
+
+        # PDF Download Button
+        pdf_data = generate_pdf_report(result, audit_focus)
+        st.download_button(
+            label="📥 Download Audit Report (PDF)",
+            data=pdf_data,
+            file_name="SOX_Compliance_Audit_Report.pdf",
+            mime="application/pdf"
+        )
 
         st.markdown("### 📋 Executive Summary")
         st.write(result.alignment_summary)
@@ -200,7 +267,7 @@ if st.session_state.get("audit_run", False):
                 st.markdown(f"- {t}")
 
     # ==========================================
-    # 5. Interactive Chat & Memory Section
+    # 6. Interactive Chat & Memory Section
     # ==========================================
     st.markdown("---")
     st.subheader("💬 Ask Follow-up Questions (Powered by LLM Memory)")
@@ -239,3 +306,6 @@ if st.session_state.get("audit_run", False):
             
             with st.chat_message("assistant"):
                 st.write(response.content)
+
+
+                
