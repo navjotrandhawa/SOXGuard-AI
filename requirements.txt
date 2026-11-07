@@ -1,0 +1,25 @@
+# UI Framework
+streamlit
+
+# PDF Loading Utilities
+pypdf
+
+# LangChain Core
+langchain
+langchain-core
+langchain-community
+
+# OpenAI Integration
+langchain-openai
+openai
+
+# Environment Variable Management
+python-dotenv
+
+# Machine Learning & Vector Utilities
+numpy
+scikit-learn
+chromadb
+
+# Data Validation & Schemas
+pydantic
