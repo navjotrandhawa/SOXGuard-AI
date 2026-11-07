@@ -1,8 +1,9 @@
 # UI Framework
 streamlit
 
-# PDF Loading Utilities
+# PDF Loading & Generation Utilities
 pypdf
+reportlab
 
 # LangChain Core
 langchain
